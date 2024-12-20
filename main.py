@@ -213,11 +213,11 @@ class FaceClassifier:
 
 def main():
     # Configuration
-    input_dir = "./Intel Unison"
-    reference_image = "./Intel Unison/IMG_9198.png"
+    input_dir = "./path to input dir"
+    reference_image = "./path to the ref img to be used to classify"
     output_dir = "./"
     output_zip = "classified_images.zip"
-    model_path = "path/to/model/weights.h5"  # Optional
+    model_path = "path/to/model/weights.h5" 
 
     try:
         # Initialize classifier
