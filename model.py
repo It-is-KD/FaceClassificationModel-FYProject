@@ -9,7 +9,6 @@ from dataclasses import dataclass
 
 @dataclass
 class ModelConfig:
-    """Configuration for the face recognition model"""
     input_shape: Tuple[int, int, int] = (224, 224, 3)
     embedding_dim: int = 512  # Increased from 128 for better representation
     use_pretrained: bool = True
@@ -17,7 +16,7 @@ class ModelConfig:
     l2_regularization: float = 0.01
     batch_norm_momentum: float = 0.99
     learning_rate: float = 0.001
-    base_model_type: str = "resnet50"  # Options: "resnet50", "efficientnet", "custom"
+    base_model_type: str = "efficientnet"  # Options: "resnet50", "efficientnet", "custom"
     use_attention: bool = True  # Use attention mechanism for better feature extraction
     use_arcface: bool = True  # Use ArcFace loss for better face recognition
     margin: float = 0.5  # Margin for triplet/arcface loss
@@ -26,20 +25,13 @@ class ModelConfig:
 
 class FaceRecognitionModel:
     def __init__(self, config: ModelConfig):
-        """
-        Initialize the face recognition model with enhanced architecture
 
-        Args:
-            config: ModelConfig object containing model parameters
-        """
         self.config = config
         self.model = self._build_model()
         
-        # Set up GPU memory growth to avoid OOM errors
         self._setup_gpu_memory_growth()
 
     def _setup_gpu_memory_growth(self):
-        """Configure TensorFlow to use GPU memory growth"""
         try:
             gpus = tf.config.experimental.list_physical_devices('GPU')
             if gpus:
@@ -50,9 +42,6 @@ class FaceRecognitionModel:
             print(f"Error setting up GPU memory growth: {e}")
 
     def _build_base_model(self) -> Model:
-        """
-        Build the base CNN model with support for multiple architectures
-        """
         if not self.config.use_pretrained:
             return self._build_custom_cnn()
             
@@ -86,9 +75,6 @@ class FaceRecognitionModel:
             return self._build_custom_cnn()
 
     def _build_custom_cnn(self) -> Model:
-        """
-        Build an enhanced custom CNN architecture with residual connections
-        """
         inputs = layers.Input(shape=self.config.input_shape)
 
         # First conv block with residual connection
@@ -129,9 +115,7 @@ class FaceRecognitionModel:
         return Model(inputs, x, name='custom_cnn')
 
     def _attention_block(self, x: tf.Tensor) -> tf.Tensor:
-        """
-        Create a spatial attention block to focus on important facial features
-        """
+
         # Channel attention
         avg_pool = layers.GlobalAveragePooling2D()(x)
         avg_pool = layers.Reshape((1, 1, x.shape[-1]))(avg_pool)
@@ -158,9 +142,6 @@ class FaceRecognitionModel:
                     filters: int,
                     kernel_size: int,
                     strides: int) -> tf.Tensor:
-        """
-        Create an enhanced convolution block with batch normalization and activation
-        """
         x = layers.Conv2D(
             filters=filters,
             kernel_size=kernel_size,
@@ -176,9 +157,7 @@ class FaceRecognitionModel:
         return x
 
     def _build_model(self) -> Model:
-        """
-        Build the complete face recognition model with enhanced architecture
-        """
+
         # Input layer
         inputs = layers.Input(shape=self.config.input_shape)
 
@@ -224,15 +203,10 @@ class FaceRecognitionModel:
 
     def compile_model(self,
                     optimizer: Optional[tf.keras.optimizers.Optimizer] = None):
-        """
-        Compile the model with enhanced loss function
-        """
         if optimizer is None:
             optimizer = tf.keras.optimizers.Adam(self.config.learning_rate)
 
         if self.config.use_arcface:
-            # Create arcface weights variable outside the loss function
-            # Get the number of classes from the last layer of the model
             num_classes = 120  # Set this to your actual number of classes
             self.arcface_weights = tf.Variable(
                 tf.random.normal([num_classes, self.config.embedding_dim]),
@@ -254,16 +228,6 @@ class FaceRecognitionModel:
     def _triplet_loss(self,
                 y_true: tf.Tensor,
                 y_pred: tf.Tensor) -> tf.Tensor:
-        """
-        Enhanced triplet loss with dynamic margin
-
-        Args:
-            y_true: Unused (required by Keras API)
-            y_pred: Tensor containing anchor, positive, and negative embeddings
-
-        Returns:
-            Triplet loss value
-        """
         # Split embeddings into anchor, positive, and negative
         embeddings = tf.cast(y_pred, tf.float32)
         anchor, positive, negative = tf.split(embeddings, 0, axis=0)
@@ -287,60 +251,33 @@ class FaceRecognitionModel:
     def _arcface_loss(self,
                         y_true: tf.Tensor,
                         y_pred: tf.Tensor) -> tf.Tensor:
-        """
-        ArcFace loss implementation for better angular separation
 
-        Args:
-            y_true: One-hot encoded class labels
-            y_pred: Embeddings from the model
-
-        Returns:
-            ArcFace loss value
-        """
-        # Get the number of classes from y_true
         num_classes = tf.shape(y_true)[1]
 
-        # Get batch size
         batch_size = tf.shape(y_pred)[0]
 
-        # Use the pre-created weights instead of creating them here
         weights_norm = tf.nn.l2_normalize(self.arcface_weights, axis=1)
         features_norm = tf.nn.l2_normalize(y_pred, axis=1)
 
-        # Compute cos(theta) matrix
         cos_t = tf.matmul(features_norm, weights_norm, transpose_b=True)
 
-        # Get target logits
         mask = tf.cast(y_true, dtype=tf.float32)
 
-        # Calculate arcface margin
         margin = self.config.margin
         scale = self.config.scale
 
-        # cos(theta + margin)
         cos_t_margin = tf.cos(tf.acos(tf.clip_by_value(cos_t, -0.9999, 0.9999)) + margin)
 
-        # Apply margin to target logits only
         final_target_logits = mask * cos_t_margin + (1.0 - mask) * cos_t
 
-        # Apply scale
         scaled_logits = final_target_logits * scale
 
-        # Calculate cross entropy loss
         losses = tf.nn.softmax_cross_entropy_with_logits(labels=y_true, logits=scaled_logits)
 
         return tf.reduce_mean(losses)
 
     def get_embedding(self, image: np.ndarray) -> np.ndarray:
-        """
-        Generate embedding for a single face image
 
-        Args:
-            image: Preprocessed face image
-
-        Returns:
-            Face embedding vector
-        """
         # Add batch dimension if needed
         if len(image.shape) == 3:
             image = np.expand_dims(image, axis=0)
@@ -350,15 +287,7 @@ class FaceRecognitionModel:
             return self.model.predict(image, verbose=0)
 
     def get_embeddings(self, images: np.ndarray) -> np.ndarray:
-        """
-        Generate embeddings for multiple face images with batch processing
 
-        Args:
-            images: Batch of preprocessed face images
-
-        Returns:
-            Array of face embedding vectors
-        """
         # Use GPU for prediction if available
         with tf.device('/GPU:0' if tf.config.list_physical_devices('GPU') else '/CPU:0'):
             # Process in batches to avoid memory issues
@@ -378,9 +307,7 @@ class FaceRecognitionModel:
     def save_model(self,
                 model_path: str,
                 save_weights_only: bool = False):
-        """
-        Save the model to disk
-        """
+
         if save_weights_only:
             self.model.save_weights(model_path)
         else:
@@ -390,9 +317,6 @@ class FaceRecognitionModel:
     def load_model(self,
                 model_path: str,
                 load_weights_only: bool = False):
-        """
-        Load the model from disk
-        """
         if load_weights_only:
             self.model.load_weights(model_path)
         else:
@@ -412,16 +336,6 @@ class FaceRecognitionModel:
     def evaluate(self,
                 test_data: Tuple[np.ndarray, np.ndarray],
                 batch_size: int = 32) -> float:
-        """
-        Evaluate model performance on test data
-
-        Args:
-            test_data: Tuple of (images, labels) for testing
-            batch_size: Batch size for evaluation
-
-        Returns:
-            Test loss value
-        """
         test_images, test_labels = test_data
         test_generator = TripletGenerator(
             images=test_images,
@@ -438,17 +352,7 @@ class FaceRecognitionModel:
             initial_epoch=0,  # Add this parameter
             batch_size=32,
             callbacks=None):
-        """
-        Train the face recognition model with enhanced training process
 
-        Args:
-            train_data: Tuple of (images, labels) for training
-            validation_data: Optional tuple of (images, labels) for validation
-            epochs: Number of training epochs
-            initial_epoch: Epoch at which to start training (useful for resuming)
-            batch_size: Batch size for training
-            callbacks: List of Keras callbacks
-        """
         train_images, train_labels = train_data
 
         # Create data generator with augmentation
@@ -510,22 +414,13 @@ class FaceRecognitionModel:
         return history
             
 class TripletGenerator(tf.keras.utils.Sequence):
-    """Enhanced data generator for triplet loss training with augmentation"""
 
     def __init__(self,
                 images: np.ndarray,
                 labels: np.ndarray,
                 batch_size: int = 32,
                 use_augmentation: bool = False):
-        """
-        Initialize triplet generator with optional data augmentation
-        
-        Args:
-            images: Training images
-            labels: Training labels
-            batch_size: Batch size
-            use_augmentation: Whether to use data augmentation
-        """
+
         self.images = images
         self.labels = labels
         self.batch_size = batch_size
